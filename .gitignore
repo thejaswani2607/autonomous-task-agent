@@ -1,0 +1,17 @@
+# Secrets — never commit real API keys
+.env
+
+# Python cache/junk files
+__pycache__/
+*.pyc
+
+# Virtual environment folder 
+venv/
+.venv/
+
+# OS junk files
+.DS_Store
+
+# generated outputs (don't want to clutter git with every test run's files)
+*.csv
+*.xlsx
