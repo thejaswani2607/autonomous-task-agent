@@ -1,10 +1,10 @@
-langgraph          # the library that builds our Planner→Executor→Evaluator loop as a graph
-langchain-core      # shared building blocks LangGraph depends on (message types, etc.)
-google-generativeai  # official SDK to call Gemini's API (LLM calls + function-calling)
-tavily-python        # SDK for the web_search tool (Tavily's free search API for agents)
-openpyxl             # lets Python read/write real .xlsx Excel files (for write_file when saving Excel)
-pandas               # handy for organizing data before saving to CSV/Excel (used in run_python steps)
-python-dotenv         # loads secrets from .env into our program safely, without hardcoding them
-sentence-transformers # turns text into embeddings, locally, for free — powers the memory feature
-faiss-cpu             # the actual vector store (memory notebook) that stores/searches those embeddings
-pydantic              # defines strict schemas for our AgentState and tool arguments (catches bugs early)
+langgraph==0.2.60
+langchain-core==0.3.28
+google-generativeai==0.8.3
+tavily-python==0.5.0
+openpyxl==3.1.5
+pandas==2.2.3
+python-dotenv==1.0.1
+sentence-transformers==3.3.1
+faiss-cpu==1.9.0
+pydantic==2.10.4
