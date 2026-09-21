@@ -2,6 +2,7 @@ import subprocess
 import tempfile
 import os
 import io
+from datetime import datetime
 from pydantic import BaseModel
 from tavily import TavilyClient
 import pandas as pd
@@ -68,12 +69,27 @@ def run_python(code: str, timeout: int = 10) -> str:
         os.remove(tmp_path)
 
 
+def _make_unique_path(path: str) -> str:
+    """
+    If path already exists, insert a timestamp before the extension
+    so we never silently overwrite a previous run's output.
+    e.g. output.csv -> output_20260921_143022.csv
+    """
+    if not os.path.exists(path):
+        return path
+    base, ext = os.path.splitext(path)
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    return f"{base}_{timestamp}{ext}"
+
+
 def write_file(path: str, content: str) -> str:
     """
     Write content to disk. If the path ends in .xlsx, treat content as
     CSV-formatted text and convert it into a real Excel file. Otherwise,
     write the content as plain text (works for .csv, .md, .txt).
+    Never overwrites an existing file — auto-renames with a timestamp instead.
     """
+    path = _make_unique_path(path)
     os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
 
     if path.endswith(".xlsx"):
