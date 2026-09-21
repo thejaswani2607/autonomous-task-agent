@@ -1,5 +1,6 @@
 import os
 import json
+import re
 from google import genai
 from google.genai import types
 from dotenv import load_dotenv
@@ -20,6 +21,9 @@ RESPONSE_SCHEMA = {
     "required": ["verdict", "reasoning"],
 }
 
+# Keywords that signal the goal expects a real file to be saved.
+FILE_OUTPUT_HINTS = ["save", "csv", "excel", "xlsx", ".csv", ".xlsx", "file", "spreadsheet"]
+
 
 def _format_history(state: AgentState) -> str:
     """Turn the history list into readable text for the prompt."""
@@ -34,12 +38,22 @@ def _format_history(state: AgentState) -> str:
     return "\n".join(lines)
 
 
+def _goal_requires_file_output(goal: str) -> bool:
+    goal_lower = goal.lower()
+    return any(hint in goal_lower for hint in FILE_OUTPUT_HINTS)
+
+
+def _has_successful_write_file(state: AgentState) -> bool:
+    return any(s.tool_name == "write_file" and s.success for s in state.history)
+
+
 def evaluate_progress(state: AgentState) -> AgentState:
     """
     Ask Gemini to judge overall progress toward the goal, given the full history.
     Updates the last history entry with the verdict, and sets state.done /
-    state.final_answer if the goal is fully complete. Also enforces the
-    15-step hard safety cap regardless of what Gemini says.
+    state.final_answer if the goal is fully complete. Enforces the 15-step
+    hard safety cap, and a code-level check that refuses "done" if the goal
+    clearly needed a saved file but write_file never succeeded.
     """
     prompt = f"""You are the evaluator module of an autonomous agent.
 
@@ -48,9 +62,13 @@ GOAL: {state.goal}
 FULL HISTORY:
 {_format_history(state)}
 
+Break the goal down into EVERY separate concrete requirement (e.g. "find N items" is
+one requirement, "save as a file" is a SEPARATE requirement). Check the history against
+EACH requirement individually before deciding.
+
 Judge the current progress:
-- "done": the goal has been FULLY achieved (all required outputs actually exist, e.g. a file was actually written successfully)
-- "continue": progress is being made but the goal isn't fully done yet
+- "done": ALL requirements are fully satisfied, with actual successful tool calls proving each one
+- "continue": progress is being made but at least one requirement isn't satisfied yet
 - "stuck": the last action(s) failed and a different approach is needed
 
 If verdict is "done", write a short final_answer summarizing what was accomplished.
@@ -76,6 +94,14 @@ If verdict is "done", write a short final_answer summarizing what was accomplish
     verdict = verdict_data.get("verdict", "continue")
     reasoning = verdict_data.get("reasoning", "")
     final_answer = verdict_data.get("final_answer")
+
+    # --- Code-level safety net: don't trust "done" blindly ---
+    if verdict == "done" and _goal_requires_file_output(state.goal) and not _has_successful_write_file(state):
+        verdict = "continue"
+        reasoning = (
+            "Overridden by safety check: the goal requires a saved file, but no successful "
+            "write_file call exists in history yet. " + reasoning
+        )
 
     if state.history:
         state.history[-1].evaluator_verdict = verdict
