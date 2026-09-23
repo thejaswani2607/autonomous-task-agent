@@ -22,7 +22,7 @@ TOOLS = types.Tool(function_declarations=[
     ),
     types.FunctionDeclaration(
         name="run_python",
-        description="Run Python code in an isolated sandbox to compute, organize, merge, or transform data gathered so far. Use print() to output results.",
+        description="Run Python code in an isolated sandbox. Use this ONLY when you need actual computation - math, sorting, merging numeric data, deduplication logic. Do NOT use this just to format text into CSV rows - write the CSV text yourself and call write_file directly instead.",
         parameters={
             "type": "OBJECT",
             "properties": {
@@ -33,7 +33,7 @@ TOOLS = types.Tool(function_declarations=[
     ),
     types.FunctionDeclaration(
         name="write_file",
-        description="Save content to a file on disk as the final step, once the data is ready. Use .csv for CSV files, .xlsx for Excel files.",
+        description="Save content to a file on disk as the final step, once the data is ready. Use .csv for CSV files, .xlsx for Excel files. You can write the CSV-formatted content directly yourself - no need to use run_python first just to build simple text.",
         parameters={
             "type": "OBJECT",
             "properties": {
@@ -74,7 +74,17 @@ HISTORY SO FAR:
 {_format_history(state)}
 
 Decide the SINGLE next tool call that makes the most progress toward the goal.
-Do not repeat an action that already failed in the same way - try a different approach instead.
+
+Efficiency rules - follow these strictly:
+- Do NOT repeat an action that already failed in the same way - try a different approach instead.
+- Be decisive: if the goal needs N items (e.g. "3 tools", "3 recipes") and you can already
+  identify N distinct, usable items from the searches done so far, STOP searching immediately
+  and move to saving the file. Do not keep searching "to be thorough" once you have enough.
+- Prefer calling write_file DIRECTLY with the final CSV-formatted text you compose yourself.
+  Only use run_python first if you genuinely need to compute something (math, sorting, merging
+  numeric values) - not just to format plain text into rows.
+- Every extra step costs real time and money, so the fewest steps that correctly satisfy the
+  goal is always the best plan.
 """
 
     response = call_with_retry(lambda model: client.models.generate_content(
