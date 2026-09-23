@@ -2,6 +2,7 @@ import subprocess
 import tempfile
 import os
 import io
+import re
 from datetime import datetime
 from pydantic import BaseModel
 from tavily import TavilyClient
@@ -30,8 +31,32 @@ class WriteFileArgs(BaseModel):
 
 # ---------- Tool implementations ----------
 
+def _clean_snippet(text: str) -> str:
+    """
+    Strip common webpage-scraping noise from raw search content:
+    markdown headers, star-rating symbols, image placeholder labels,
+    and excessive whitespace/line breaks. Keeps the real sentences intact.
+    """
+    if not text:
+        return text
+
+    # Remove markdown heading markers like ###, ######
+    text = re.sub(r"#{1,6}\s*", "", text)
+
+    # Remove star-rating symbols
+    text = text.replace("⭐", "")
+
+    # Remove common image/UI placeholder tokens
+    text = re.sub(r"\b(pros-image|cons-image)\b", "", text)
+
+    # Collapse multiple newlines/spaces into a single space
+    text = re.sub(r"\s+", " ", text)
+
+    return text.strip()
+
+
 def web_search(query: str) -> str:
-    """Search the web and return a readable summary of top results."""
+    """Search the web and return a readable, cleaned summary of top results."""
     response = tavily_client.search(query=query, max_results=5)
     results = response.get("results", [])
     if not results:
@@ -39,34 +64,39 @@ def web_search(query: str) -> str:
 
     lines = []
     for r in results:
-        lines.append(f"- {r.get('title')}: {r.get('content', '')[:300]} (source: {r.get('url')})")
+        cleaned = _clean_snippet(r.get("content", ""))[:250]
+        lines.append(f"- {r.get('title')}: {cleaned} (source: {r.get('url')})")
     return "\n".join(lines)
 
 
 def run_python(code: str, timeout: int = 10) -> str:
     """
-    Run Python code in an isolated subprocess with a timeout.
-    This is the sandboxing layer: the code never runs inside our main
-    program's memory — it's a separate, disposable process we can kill safely.
+    Run Python code in an isolated subprocess with a timeout, inside a
+    throwaway temporary directory. This means the code cannot crash our
+    main program AND cannot write real files to the actual project folder,
+    even if it tries to (e.g. via open()) - any file writes land in a
+    temp folder that gets deleted right after. Only write_file is allowed
+    to produce real, persistent output, since that's the one path that
+    goes through human approval.
     """
-    with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False) as tmp:
-        tmp.write(code)
-        tmp_path = tmp.name
+    with tempfile.TemporaryDirectory() as sandbox_dir:
+        script_path = os.path.join(sandbox_dir, "script.py")
+        with open(script_path, "w") as f:
+            f.write(code)
 
-    try:
-        result = subprocess.run(
-            ["python", tmp_path],
-            capture_output=True,
-            text=True,
-            timeout=timeout,
-        )
-        if result.returncode != 0:
-            return f"ERROR (exit code {result.returncode}): {result.stderr.strip()}"
-        return result.stdout.strip() if result.stdout.strip() else "(code ran successfully, no output printed)"
-    except subprocess.TimeoutExpired:
-        return f"ERROR: code timed out after {timeout} seconds"
-    finally:
-        os.remove(tmp_path)
+        try:
+            result = subprocess.run(
+                ["python", script_path],
+                capture_output=True,
+                text=True,
+                timeout=timeout,
+                cwd=sandbox_dir,
+            )
+            if result.returncode != 0:
+                return f"ERROR (exit code {result.returncode}): {result.stderr.strip()}"
+            return result.stdout.strip() if result.stdout.strip() else "(code ran successfully, no output printed)"
+        except subprocess.TimeoutExpired:
+            return f"ERROR: code timed out after {timeout} seconds"
 
 
 def _make_unique_path(path: str) -> str:
@@ -88,6 +118,7 @@ def write_file(path: str, content: str) -> str:
     CSV-formatted text and convert it into a real Excel file. Otherwise,
     write the content as plain text (works for .csv, .md, .txt).
     Never overwrites an existing file — auto-renames with a timestamp instead.
+    This is the ONLY tool that produces real, persistent output.
     """
     path = _make_unique_path(path)
     os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
