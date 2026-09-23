@@ -20,6 +20,7 @@ class AgentState(BaseModel):
     step_count: int = 0
     done: bool = False
     final_answer: Optional[str] = None
+    aborted: bool = False  # true if the Planner couldn't get a decision at all (e.g. API fully down)
 
     # for the cost/step tracker improvement
     llm_call_count: int = 0
@@ -41,11 +42,11 @@ class AgentState(BaseModel):
             lines.append("  (no steps yet)")
         else:
             for step in self.history:
-                status = "✅ success" if step.success else "❌ failed"
-                lines.append(f"  [{step.step_number}] {step.tool_name}({step.tool_args}) → {status}")
+                status = "success" if step.success else "failed"
+                lines.append(f"  [{step.step_number}] {step.tool_name}({step.tool_args}) -> {status}")
                 lines.append(f"      result: {step.result}")
                 if step.evaluator_verdict:
-                    lines.append(f"      evaluator: {step.evaluator_verdict} — {step.evaluator_reasoning}")
+                    lines.append(f"      evaluator: {step.evaluator_verdict} - {step.evaluator_reasoning}")
         if self.final_answer:
             lines.append(f"Final answer: {self.final_answer}")
         return "\n".join(lines)

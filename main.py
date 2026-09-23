@@ -24,7 +24,7 @@ def print_planner_update(state_dict):
     if action:
         tool_name = _field(action, "tool_name")
         tool_args = _field(action, "tool_args")
-        print(f"🧠 PLANNER decided: {tool_name}({tool_args})")
+        print(f"PLANNER decided: {tool_name}({tool_args})")
 
 
 def print_executor_update(state_dict):
@@ -34,8 +34,8 @@ def print_executor_update(state_dict):
     step = history[-1]
     success = _field(step, "success")
     result = _field(step, "result", "")
-    status = "✅ SUCCESS" if success else "❌ FAILED"
-    print(f"⚙️  EXECUTOR ran it: {status}")
+    status = "SUCCESS" if success else "FAILED"
+    print(f"EXECUTOR ran it: {status}")
     print(f"    Result: {str(result)[:300]}")
 
 
@@ -47,7 +47,7 @@ def print_evaluator_update(state_dict):
     verdict = _field(step, "evaluator_verdict")
     reasoning = _field(step, "evaluator_reasoning")
     if verdict:
-        print(f"🔍 EVALUATOR verdict: {verdict.upper()}")
+        print(f"EVALUATOR verdict: {verdict.upper()}")
         print(f"    Reasoning: {reasoning}\n")
 
 
@@ -80,7 +80,6 @@ def main():
     final_state = AgentState(**final_state_dict) if isinstance(final_state_dict, dict) else final_state_dict
     print(final_state.pretty())
 
-    # Cost/step summary — your improvement #2
     print("\n--- Run Summary ---")
     print(f"Total steps: {final_state.step_count}")
     print(f"LLM calls: {final_state.llm_call_count}")
