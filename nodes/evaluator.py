@@ -1,15 +1,13 @@
 import os
 import json
-import re
 from google import genai
 from google.genai import types
 from dotenv import load_dotenv
 from state import AgentState
+from llm_utils import call_with_retry
 
 load_dotenv()
 client = genai.Client(api_key=os.environ["GOOGLE_API_KEY"])
-
-MODEL_NAME = "gemini-3.1-flash-lite"
 
 RESPONSE_SCHEMA = {
     "type": "OBJECT",
@@ -21,12 +19,10 @@ RESPONSE_SCHEMA = {
     "required": ["verdict", "reasoning"],
 }
 
-# Keywords that signal the goal expects a real file to be saved.
 FILE_OUTPUT_HINTS = ["save", "csv", "excel", "xlsx", ".csv", ".xlsx", "file", "spreadsheet"]
 
 
 def _format_history(state: AgentState) -> str:
-    """Turn the history list into readable text for the prompt."""
     if not state.history:
         return "No actions taken yet."
     lines = []
@@ -74,14 +70,14 @@ Judge the current progress:
 If verdict is "done", write a short final_answer summarizing what was accomplished.
 """
 
-    response = client.models.generate_content(
-        model=MODEL_NAME,
+    response = call_with_retry(lambda model: client.models.generate_content(
+        model=model,
         contents=prompt,
         config=types.GenerateContentConfig(
             response_mime_type="application/json",
             response_schema=RESPONSE_SCHEMA,
         ),
-    )
+    ))
 
     try:
         verdict_data = json.loads(response.text)
@@ -95,12 +91,11 @@ If verdict is "done", write a short final_answer summarizing what was accomplish
     reasoning = verdict_data.get("reasoning", "")
     final_answer = verdict_data.get("final_answer")
 
-    # --- Code-level safety net: don't trust "done" blindly ---
     if verdict == "done" and _goal_requires_file_output(state.goal) and not _has_successful_write_file(state):
         verdict = "continue"
         reasoning = (
-            "Overridden by safety check: the goal requires a saved file, but no successful "
-            "write_file call exists in history yet. " + reasoning
+            "Not yet done: the goal requires a file saved via write_file specifically, "
+            "and that hasn't succeeded yet, regardless of what other progress was made."
         )
 
     if state.history:
@@ -111,7 +106,6 @@ If verdict is "done", write a short final_answer summarizing what was accomplish
         state.done = True
         state.final_answer = final_answer or "Goal completed."
 
-    # Hard safety cap — stop regardless of verdict once we hit 15 steps
     if state.step_count >= 15 and not state.done:
         state.done = True
         state.final_answer = "Stopped: reached the 15-step safety limit before the goal was confirmed complete."

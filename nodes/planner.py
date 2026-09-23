@@ -3,13 +3,11 @@ from google import genai
 from google.genai import types
 from dotenv import load_dotenv
 from state import AgentState
+from llm_utils import call_with_retry
 
 load_dotenv()
 client = genai.Client(api_key=os.environ["GOOGLE_API_KEY"])
 
-MODEL_NAME = "gemini-3.1-flash-lite"
-
-# Tool declarations — this is what tells Gemini what actions exist and what arguments each needs.
 TOOLS = types.Tool(function_declarations=[
     types.FunctionDeclaration(
         name="web_search",
@@ -79,8 +77,8 @@ Decide the SINGLE next tool call that makes the most progress toward the goal.
 Do not repeat an action that already failed in the same way - try a different approach instead.
 """
 
-    response = client.models.generate_content(
-        model=MODEL_NAME,
+    response = call_with_retry(lambda model: client.models.generate_content(
+        model=model,
         contents=prompt,
         config=types.GenerateContentConfig(
             tools=[TOOLS],
@@ -88,7 +86,7 @@ Do not repeat an action that already failed in the same way - try a different ap
                 function_calling_config=types.FunctionCallingConfig(mode="ANY")
             ),
         ),
-    )
+    ))
 
     part = response.candidates[0].content.parts[0]
     if part.function_call:
@@ -97,5 +95,4 @@ Do not repeat an action that already failed in the same way - try a different ap
             "tool_args": dict(part.function_call.args),
         }
 
-    # Shouldn't normally happen since mode="ANY" forces a function call every time
     return {"tool_name": None, "tool_args": {}, "raw_text": response.text or ""}
