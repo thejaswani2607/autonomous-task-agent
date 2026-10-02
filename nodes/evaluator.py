@@ -94,6 +94,12 @@ Break the goal down into EVERY separate concrete requirement, including:
 Check the history against EACH requirement individually before deciding. Be strict about counts -
 do not assume a requirement is met just because a plausible-sounding file exists.
 
+CRITICAL for final_answer: only name specific items (tools, recipes, products, etc.) that you can
+point to a specific successful web_search step actually containing. Do not name items from an
+earlier assumption, an earlier draft, or your own general knowledge if the most recent evidence
+in history doesn't clearly support them. If uncertain which specific items ended up in the final
+saved file, describe the outcome generally rather than naming items you can't verify from history.
+
 Judge the current progress:
 - "done": ALL requirements are fully satisfied, with actual successful tool calls proving each one
 - "continue": progress is being made but at least one requirement isn't satisfied yet
