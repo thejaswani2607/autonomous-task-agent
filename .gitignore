@@ -5,13 +5,16 @@
 __pycache__/
 *.pyc
 
-# Virtual environment folder 
+# Virtual environment folder (if you make one later)
 venv/
 .venv/
 
 # OS junk files
 .DS_Store
 
-# generated outputs (don't want to clutter git with every test run's files)
+# Your own generated outputs (we don't want to clutter git with every test run's files)
 *.csv
 *.xlsx
+
+# Local FAISS memory database — regenerated locally, not needed in the repo
+memory_store/

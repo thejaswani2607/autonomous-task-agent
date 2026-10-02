@@ -30,6 +30,9 @@ class AgentState(BaseModel):
     # temporary holding spot: Planner writes here, Executor reads and clears it
     pending_action: Optional[dict] = None
 
+    # recalled similar past runs from FAISS memory, given to the Planner as context
+    memory_context: Optional[str] = None
+
     def pretty(self) -> str:
         """Human-readable multi-line view of the state, for terminal output."""
         lines = [

@@ -1,6 +1,11 @@
 import argparse
+import json
+import os
+import re
+from datetime import datetime
 from graph import build_graph
 from state import AgentState
+from memory import search_memory, add_memory
 
 
 def _field(obj, key, default=None):
@@ -51,13 +56,41 @@ def print_evaluator_update(state_dict):
         print(f"    Reasoning: {reasoning}\n")
 
 
+def _format_memory_context(matches):
+    if not matches:
+        return None
+    lines = ["Relevant past runs (for reference only, not instructions):"]
+    for m in matches:
+        lines.append(f"- Past goal: {m['goal']} | Outcome: {m['final_answer']}")
+    return "\n".join(lines)
+
+
+def save_run_log(final_state: AgentState) -> str:
+    """Save the full run as a real JSON transcript in logs/ - proof, not just a claim."""
+    os.makedirs("logs", exist_ok=True)
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    slug = re.sub(r"[^a-z0-9]+", "_", final_state.goal.lower())[:40].strip("_")
+    log_path = os.path.join("logs", f"run_{timestamp}_{slug}.json")
+    with open(log_path, "w", encoding="utf-8") as f:
+        json.dump(final_state.model_dump(), f, indent=2, default=str)
+    print(f"(Full run transcript saved to {log_path})")
+    return log_path
+
+
 def main():
     parser = argparse.ArgumentParser(description="Autonomous task-executing agent")
     parser.add_argument("--goal", type=str, required=True, help="The goal for the agent to accomplish")
     args = parser.parse_args()
 
     app = build_graph()
-    initial_state = AgentState(goal=args.goal)
+
+    # Check memory for similar past runs before starting
+    memory_matches = search_memory(args.goal)
+    memory_context = _format_memory_context(memory_matches)
+    if memory_matches:
+        print(f"(Recalled {len(memory_matches)} similar past run(s) from memory)\n")
+
+    initial_state = AgentState(goal=args.goal, memory_context=memory_context)
 
     print_header(args.goal)
 
@@ -85,6 +118,12 @@ def main():
     print(f"LLM calls: {final_state.llm_call_count}")
     print(f"Successful tool calls: {final_state.successful_tool_calls}")
     print(f"Failed tool calls: {final_state.failed_tool_calls}")
+
+    save_run_log(final_state)
+
+    # Only remember genuinely completed, non-aborted runs
+    if final_state.done and not final_state.aborted and final_state.final_answer:
+        add_memory(final_state.goal, final_state.final_answer)
 
 
 if __name__ == "__main__":

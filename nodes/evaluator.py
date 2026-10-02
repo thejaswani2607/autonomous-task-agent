@@ -82,10 +82,14 @@ FULL HISTORY:
 
 Break the goal down into EVERY separate concrete requirement, including:
 - Any specific QUANTITY mentioned (e.g. "3 recipes", "5 tools", "top 10") - count how many
-  genuinely distinct, named items actually appear across the history. If the goal asked for
-  N items and fewer than N distinct items are clearly present, this requirement is NOT satisfied,
-  even if a file was saved.
+  genuinely distinct, named items actually appear across the history, backed by real web_search
+  results (not just the agent's own stated claims). If the goal asked for N items and fewer than
+  N distinct items are clearly present with search evidence, this requirement is NOT satisfied.
 - Any file-saving requirement (e.g. "save as", "csv", "excel") - separate from the above.
+  IMPORTANT: write_file automatically adds a timestamp to the filename if a file with that name
+  already exists, to avoid overwriting previous output. A successful write_file call satisfies
+  the file-saving requirement even if the saved filename doesn't exactly match what was requested -
+  do not reject completion just because of an auto-added timestamp in the filename.
 
 Check the history against EACH requirement individually before deciding. Be strict about counts -
 do not assume a requirement is met just because a plausible-sounding file exists.
@@ -119,7 +123,6 @@ If verdict is "done", write a short final_answer summarizing what was accomplish
     reasoning = verdict_data.get("reasoning", "")
     final_answer = verdict_data.get("final_answer")
 
-    # --- Code-level safety net #1: file must actually be saved if implied ---
     if verdict == "done" and _goal_requires_file_output(state.goal) and not _has_successful_write_file(state):
         verdict = "continue"
         reasoning = (
@@ -127,7 +130,6 @@ If verdict is "done", write a short final_answer summarizing what was accomplish
             "and that hasn't succeeded yet, regardless of what other progress was made."
         )
 
-    # --- Code-level safety net #2: enough searches to plausibly cover the requested count ---
     required_count = _extract_required_item_count(state.goal)
     if verdict == "done" and required_count is not None:
         search_count = _successful_search_count(state)
