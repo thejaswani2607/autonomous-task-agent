@@ -2,10 +2,14 @@ from state import AgentState, StepRecord
 from tools import TOOL_REGISTRY
 
 
-def execute_action(state: AgentState, tool_name: str, tool_args: dict) -> AgentState:
+def execute_action(state: AgentState, tool_name: str, tool_args: dict, pre_approved: bool | None = None) -> AgentState:
     """
     Actually run the tool the Planner chose, record what happened,
-    and return the updated state. Pauses for human approval before write_file.
+    and return the updated state. Pauses for human approval before write_file
+    via terminal input() in the CLI (pre_approved=None, the default).
+    If pre_approved is True or False, that decision is used instead,
+    skipping input() entirely - this is how the web app (app.py) drives
+    approval through on-page buttons instead of the terminal.
     """
     state.step_count += 1
 
@@ -23,15 +27,21 @@ def execute_action(state: AgentState, tool_name: str, tool_args: dict) -> AgentS
 
     func, _ = TOOL_REGISTRY[tool_name]
 
-    # Human-in-the-loop checkpoint: pause before any real filesystem write
     if tool_name == "write_file":
-        print("\n" + "=" * 50)
-        print("The agent wants to write a file:")
-        print(f"  Path: {tool_args.get('path')}")
-        print(f"  Content preview:\n{tool_args.get('content', '')[:400]}")
-        print("=" * 50)
-        approval = input("Proceed? (y/n): ").strip().lower()
-        if approval != "y":
+        if pre_approved is None:
+            # CLI path: ask via terminal, exactly as before
+            print("\n" + "=" * 50)
+            print("The agent wants to write a file:")
+            print(f"  Path: {tool_args.get('path')}")
+            print(f"  Content preview:\n{tool_args.get('content', '')[:400]}")
+            print("=" * 50)
+            approval = input("Proceed? (y/n): ").strip().lower()
+            approved = approval == "y"
+        else:
+            # Web path: approval already decided via on-page buttons
+            approved = pre_approved
+
+        if not approved:
             record = StepRecord(
                 step_number=state.step_count,
                 tool_name=tool_name,
