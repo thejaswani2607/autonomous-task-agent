@@ -16,7 +16,7 @@ def planner_node(state: AgentState) -> AgentState:
         state.done = True
         state.final_answer = (
             f"Run stopped: Gemini API was unavailable even after retries ({e}). "
-            f"This is usually a temporary free-tier capacity issue — try running again in a few minutes."
+            f"This is usually a temporary free-tier capacity issue - try running again in a few minutes."
         )
     return state
 
@@ -40,7 +40,7 @@ def evaluator_node(state: AgentState) -> AgentState:
         state.done = True
         state.final_answer = (
             f"Run stopped: Gemini API was unavailable even after retries during evaluation ({e}). "
-            f"The last completed step is saved in history — try running again in a few minutes."
+            f"The last completed step is saved in history - try running again in a few minutes."
         )
         if state.history:
             state.history[-1].evaluator_verdict = "stuck"
@@ -53,6 +53,14 @@ def route_after_planner(state: AgentState) -> str:
     if state.aborted:
         return END
     return "executor"
+
+
+def route_after_executor(state: AgentState) -> str:
+    """If the Executor ended the run (the user declined a file save), stop now -
+    there is nothing for the Evaluator to judge."""
+    if state.done:
+        return END
+    return "evaluator"
 
 
 def route_after_evaluator(state: AgentState) -> str:
@@ -75,7 +83,11 @@ def build_graph():
         route_after_planner,
         {"executor": "executor", END: END},
     )
-    graph.add_edge("executor", "evaluator")
+    graph.add_conditional_edges(
+        "executor",
+        route_after_executor,
+        {"evaluator": "evaluator", END: END},
+    )
     graph.add_conditional_edges(
         "evaluator",
         route_after_evaluator,
