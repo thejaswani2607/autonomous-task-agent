@@ -6,6 +6,7 @@ from datetime import datetime
 from graph import build_graph
 from state import AgentState
 from memory import search_memory, add_memory
+from checks import is_genuine_success
 
 
 def _field(obj, key, default=None):
@@ -90,7 +91,8 @@ def print_final_summary(final_state: AgentState, log_path: str):
     print("RUN COMPLETE")
     print("=" * 60)
     print(f"Goal: {final_state.goal}")
-    print(f"Status: {'DONE' if final_state.done else 'INCOMPLETE'}")
+    status = "DONE" if is_genuine_success(final_state) else "STOPPED (goal not completed)"
+    print(f"Status: {status}")
     print(f"Steps: {final_state.step_count} | LLM calls: {final_state.llm_call_count} "
           f"| Tool successes: {final_state.successful_tool_calls} | Tool failures: {final_state.failed_tool_calls}")
 
@@ -143,7 +145,8 @@ def main():
     log_path = save_run_log(final_state)
     print_final_summary(final_state, log_path)
 
-    if final_state.done and not final_state.aborted and final_state.final_answer:
+    # Only genuinely successful runs go into memory (not declined, aborted, or step-limit runs)
+    if is_genuine_success(final_state):
         add_memory(final_state.goal, final_state.final_answer)
 
 
