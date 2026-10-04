@@ -1,11 +1,11 @@
 import os
 import json
-import re
 from google import genai
 from google.genai import types
 from dotenv import load_dotenv
 from state import AgentState
 from llm_utils import call_with_retry
+from checks import goal_requires_file_output, extract_required_item_count
 
 load_dotenv()
 client = genai.Client(api_key=os.environ["GOOGLE_API_KEY"])
@@ -20,8 +20,6 @@ RESPONSE_SCHEMA = {
     "required": ["verdict", "reasoning"],
 }
 
-FILE_OUTPUT_HINTS = ["save", "csv", "excel", "xlsx", ".csv", ".xlsx", "file", "spreadsheet"]
-
 
 def _format_history(state: AgentState) -> str:
     if not state.history:
@@ -35,28 +33,8 @@ def _format_history(state: AgentState) -> str:
     return "\n".join(lines)
 
 
-def _goal_requires_file_output(goal: str) -> bool:
-    goal_lower = goal.lower()
-    return any(hint in goal_lower for hint in FILE_OUTPUT_HINTS)
-
-
 def _has_successful_write_file(state: AgentState) -> bool:
     return any(s.tool_name == "write_file" and s.success for s in state.history)
-
-
-def _extract_required_item_count(goal: str) -> int | None:
-    """
-    Look for a small number in the goal that likely specifies how many
-    distinct items are needed (e.g. "3 recipes", "find 5 tools").
-    Returns None if no plausible count is found. Bounded to 2-20 to avoid
-    misfiring on unrelated numbers (like a year or a filename).
-    """
-    matches = re.findall(r"\b(\d+)\b", goal)
-    for m in matches:
-        n = int(m)
-        if 2 <= n <= 20:
-            return n
-    return None
 
 
 def _successful_search_count(state: AgentState) -> int:
@@ -70,7 +48,7 @@ def evaluate_progress(state: AgentState) -> AgentState:
     state.final_answer if the goal is fully complete. Enforces the 15-step
     hard safety cap, plus two code-level checks that override "done" when
     the LLM's own judgment can't be trusted alone: (1) a file must actually
-    have been saved if the goal implies one, and (2) at least as many
+    have been saved if the goal asks for one, and (2) at least as many
     successful searches as any item-count mentioned in the goal.
     """
     prompt = f"""You are the evaluator module of an autonomous agent.
@@ -85,20 +63,27 @@ Break the goal down into EVERY separate concrete requirement, including:
   genuinely distinct, named items actually appear across the history, backed by real web_search
   results (not just the agent's own stated claims). If the goal asked for N items and fewer than
   N distinct items are clearly present with search evidence, this requirement is NOT satisfied.
-- Any file-saving requirement (e.g. "save as", "csv", "excel") - separate from the above.
+- A file-saving requirement - ONLY if the goal explicitly asks for a saved file (e.g. "save as",
+  "csv", "excel", "file"). If the goal does not ask for a file, do NOT require one.
   IMPORTANT: write_file automatically adds a timestamp to the filename if a file with that name
   already exists, to avoid overwriting previous output. A successful write_file call satisfies
   the file-saving requirement even if the saved filename doesn't exactly match what was requested -
   do not reject completion just because of an auto-added timestamp in the filename.
+  A write_file step marked BLOCKED means the goal did not ask for a file - ignore it.
 
 Check the history against EACH requirement individually before deciding. Be strict about counts -
 do not assume a requirement is met just because a plausible-sounding file exists.
 
-CRITICAL for final_answer: only name specific items (tools, recipes, products, etc.) that you can
-point to a specific successful web_search step actually containing. Do not name items from an
-earlier assumption, an earlier draft, or your own general knowledge if the most recent evidence
-in history doesn't clearly support them. If uncertain which specific items ended up in the final
-saved file, describe the outcome generally rather than naming items you can't verify from history.
+CRITICAL for final_answer: it must be SPECIFIC and must answer what the goal actually asked.
+Only name specific items (tools, recipes, products, hotels, etc.) that appear in successful
+web_search results in the history - never use your own general knowledge or an earlier assumption.
+If the history does not yet contain enough evidence to answer specifically, do NOT return "done"
+with a vague answer - return "continue" so that more searching happens.
+
+If the goal asks for ONE best option, a recommendation, or "which one" (for example "tell me the
+best option", "recommend", "which should I buy"), then "done" requires that final_answer names
+exactly ONE specific pick, with a short reason taken from the search results. A list of several
+models is NOT an answer to that kind of goal.
 
 Judge the current progress:
 - "done": ALL requirements are fully satisfied, with actual successful tool calls proving each one
@@ -129,14 +114,16 @@ If verdict is "done", write a short final_answer summarizing what was accomplish
     reasoning = verdict_data.get("reasoning", "")
     final_answer = verdict_data.get("final_answer")
 
-    if verdict == "done" and _goal_requires_file_output(state.goal) and not _has_successful_write_file(state):
+    # --- Code-level safety net #1: a file must actually be saved if the goal asks for one ---
+    if verdict == "done" and goal_requires_file_output(state.goal) and not _has_successful_write_file(state):
         verdict = "continue"
         reasoning = (
             "Not yet done: the goal requires a file saved via write_file specifically, "
             "and that hasn't succeeded yet, regardless of what other progress was made."
         )
 
-    required_count = _extract_required_item_count(state.goal)
+    # --- Code-level safety net #2: enough searches to plausibly cover the requested count ---
+    required_count = extract_required_item_count(state.goal)
     if verdict == "done" and required_count is not None:
         search_count = _successful_search_count(state)
         if search_count < required_count:
